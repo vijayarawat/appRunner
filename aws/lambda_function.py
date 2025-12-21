@@ -1,40 +1,48 @@
 import json
-import boto3
 import os
+import boto3
+from datetime import datetime
+
+sns = boto3.client("sns")
+sqs = boto3.client("sqs")
+
+SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
+SQS_QUEUE_URL = os.environ["SQS_QUEUE_URL"]
 
 def lambda_handler(event, context):
-    # Extract deployment status from EventBridge event
-    detail = event.get('detail', {})
-    service_arn = detail.get('serviceArn', 'Unknown')
-    operation_status = detail.get('operationStatus', 'Unknown')
-    operation_type = detail.get('operationType', 'Unknown')
+    detail = event.get("detail", {})
+    
+    service_name = detail.get("serviceName", "Unknown")
+    status = detail.get("status", "Unknown")
+    time = detail.get("time", datetime.utcnow().isoformat())
+    subject = f"{emoji} App Runner Deployment {status}"
 
-    # Prepare message
-    message = {
-        'serviceArn': service_arn,
-        'operationStatus': operation_status,
-        'operationType': operation_type,
-        'timestamp': event.get('time', 'Unknown')
-    }
+    message = f"""
+Deployment Notification
 
-    # Send to SQS
-    sqs = boto3.client('sqs')
-    queue_url = os.environ['SQS_QUEUE_URL']
+Service   : {service_name}
+Status    : {status}
+Time      : {time}
+Region    : {event.get('region')}
+Account   : {event.get('account')}
+"""
+
+    
+    # Push event to SQS (optional)
     sqs.send_message(
-        QueueUrl=queue_url,
-        MessageBody=json.dumps(message)
+        QueueUrl=SQS_QUEUE_URL,
+        MessageBody=json.dumps(event)
+    )
+    # Send Email + SMS via SNS
+    sns.publish(
+        TopicArn=SNS_TOPIC_ARN,
+        Subject=subject,
+        Message=message
     )
 
-    # Send notification via SNS
-    sns = boto3.client('sns')
-    topic_arn = os.environ['SNS_TOPIC_ARN']
-    sns.publish(
-        TopicArn=topic_arn,
-        Subject='App Runner Deployment Status',
-        Message=json.dumps(message, indent=2)
-    )
+   
 
     return {
-        'statusCode': 200,
-        'body': json.dumps('Notification sent successfully')
+        "statusCode": 200,
+        "message": "Notification sent successfully"
     }
